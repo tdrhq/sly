@@ -603,6 +603,8 @@ corresponding values in the CDR of VALUE."
 (defun flush-listener-streams (listener)
   (with-slots (in out) listener
     (force-output out)
+    #-armedbear
+    (slynk-gray::reset-stream-line-column out)
     (clear-input in)))
 
 (defmethod close-listener (l)
@@ -3196,6 +3198,32 @@ If non-nil, called with two arguments SPEC and TRACED-P." )
   (let ((fname (from-string fname-string)))
     (format nil "~S" (fmakunbound fname))))
 
+(defun read-as-function (name)
+  (eval (from-string (format nil "(function ~A)" name))))
+
+(defslyfun remove-method-by-name (generic-name qualifiers specializers)
+  "Remove GENERIC-NAME's method with QUALIFIERS and SPECIALIZERS."
+  (let* ((generic-function (read-as-function generic-name))
+         (qualifiers (mapcar #'from-string qualifiers))
+         (specializers (mapcar #'from-string specializers))
+         (method (find-method generic-function qualifiers specializers)))
+    (remove-method generic-function method)
+    t))
+
+(defslyfun generic-method-specs (generic-name)
+  "Compute ((QUALIFIERS SPECIALIZERS)...) for methods of GENERIC-NAME's gf.
+QUALIFIERS and SPECIALIZERS are lists of strings."
+  (mapcar
+   (lambda (method)
+     (list (mapcar #'prin1-to-string (slynk-mop:method-qualifiers method))
+           (mapcar (lambda (specializer)
+                     (if (typep specializer 'slynk-mop:eql-specializer)
+                         (format nil "(eql ~A)"
+                                 (sb-mop:eql-specializer-object specializer))
+                         (prin1-to-string (class-name specializer))))
+                   (slynk-mop:method-specializers method))))
+   (slynk-mop:generic-function-methods (read-as-function generic-name))))
+
 (defslyfun unintern-symbol (name package)
   (let ((pkg (guess-package package)))
     (cond ((not pkg) (format nil "No such package: ~s" package))
@@ -3424,8 +3452,14 @@ DSPEC is a string and LOCATION a source location. NAME is a string."
     (and (plusp (length history))
          (aref history (1- (length history))))))
 
-(defun reset-inspector ()
-  (setf (inspector-%history (current-inspector))
+(defun reset-inspector (&optional (inspector (current-inspector)))
+  #+sbcl
+  ;; FIXME: On SBCL, for some silly reason, this is needed to lose the
+  ;; references to the history's objects (github##568)
+  (loop with hist = (inspector-%history inspector)
+        for i from 0 below (array-dimension hist 0)
+        do (setf (aref hist i) nil))
+  (setf (inspector-%history inspector)
         (make-array 10 :adjustable t :fill-pointer 0)))
 
 (defslyfun init-inspector (string)
@@ -3556,7 +3590,6 @@ Return nil if there's no previous object."
     (let* ((history (inspector-%history (current-inspector))))
       (when (> (length history) 1)
         (decf (fill-pointer history))
-        (aref history (fill-pointer history))
         (istate>elisp (current-istate))))))
 
 (defslyfun inspector-next ()
