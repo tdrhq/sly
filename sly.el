@@ -4386,6 +4386,17 @@ in Lisp when committed with \\[sly-edit-value-commit]."
   (sly-eval-async `(slynk:undefine-function ,symbol-name)
     (lambda (result) (sly-message "%s" result))))
 
+(defun sly-remove-method (name qualifiers specializers)
+  "Remove a method from generic function named NAME.
+The method removed is identified by QUALIFIERS and SPECIALIZERS."
+  (interactive (sly--read-method
+                "[sly] Remove method from which generic function: "
+                "[sly] Remove which method from %s"))
+  (sly-eval `(slynk:remove-method-by-name ,name
+                                          ',qualifiers
+                                          ',specializers))
+  (sly-message "Method removed"))
+
 (defun sly-unintern-symbol (symbol-name package)
   "Unintern the symbol given with SYMBOL-NAME PACKAGE."
   (interactive (list (sly-read-symbol-name "Unintern symbol: " t)
@@ -6102,7 +6113,7 @@ Interactively get the number from a button at point."
                                         ""
                                         'sly-db-invoke-restart-by-name))))
   (sly-db-invoke-restart (cl-position restart-name sly-db-restarts
-                                      :test 'string= :key 'first)))
+                                      :test 'string= :key #'cl-first)))
 
 (defun sly-db-break-with-default-debugger (&optional dont-unwind)
   "Enter default debugger."
@@ -6718,12 +6729,14 @@ position of point in the current buffer."
                           :error-message "No next object"))
 
 (defun sly-inspector-quit (&optional reset)
-  "Quit the inspector and kill the buffer.
-With optional RESET (true with prefix arg), also reset the
-inspector on the Lisp side."
+  "Quit the inspector.  If RESET, clear Lisp-side history.
+If RESET, any references to inspectee's that may be holding up
+garbage collection are released.  If RESET, the buffer is
+killed (since it would become useless otherwise), else it is just
+buried."
   (interactive "P")
   (when reset (sly-eval-async `(slynk:quit-inspector)))
-  (quit-window))
+  (quit-window reset))
 
 (defun sly-inspector-describe-inspectee ()
   "Describe the currently inspected object"
